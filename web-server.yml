@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 Web Server
+
+Parameters:
+  EC2InstanceSize:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+    Description: Default is t2.micro
+  EC2InstanceAmi:
+    Type: String
+    Default: ami-9398d3e0
+    Description: Default is ami-0d77397e (Ubuntu 16.04, HVM SSD)
+  EC2KeyName:
+    Type: String
+    Default: aws-rawkode
+    Description: Key to allow SSH onto the instance
+
+Outputs:
+  IP:
+    Description: The IP Address of the webserver
+    Value: !GetAtt EC2InstanceWebServer.PublicIp
+
+Resources:
+  VPCMain:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+
+  VPCInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  VPCAttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: VPCMain
+      InternetGatewayId:
+        Ref: VPCInternetGateway
+
+  VPCSubnetPublicA:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId:
+          Ref: VPCMain
+        CidrBlock: 10.0.0.0/24
+        MapPublicIpOnLaunch: true
+        AvailabilityZone: "eu-west-1a"
+
+  VPCRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId:
+          Ref: VPCMain
+
+  VPCInternetRouting:
+      Type: AWS::EC2::Route
+      DependsOn: VPCInternetGateway
+      Properties:
+        RouteTableId:
+          Ref: VPCRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId:
+          Ref: VPCInternetGateway
+
+  RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: VPCRouteTable
+      SubnetId:
+        Ref: VPCSubnetPublicA
+
+  EC2SecurityGroupWebServer:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTP/HTTPs Allowed
+      VpcId:
+        Ref: VPCMain
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+
+  EC2InstanceWebServer:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT5M
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          provision:
+            - install-docker
+            - run-docker
+            - run-webserver
+        install-docker:
+          packages:
+            yum:
+              docker: []
+        run-docker:
+          services:
+            sysvinit:
+              docker:
+                enabled: true
+                ensureRunning: true
+        run-webserver:
+          commands:
+            1-mkdir:
+              command: mkdir -p /code
+            2-clone-code:
+              command: echo "Automation for the People!" > /code/index.html
+            4-run-webserver:
+              command: docker run --restart=always -d -p 80:80 -w /code -v /code:/code rawkode/test-webserver:latest
+    Properties:
+      InstanceType:
+        Ref: EC2InstanceSize
+      ImageId:
+        Ref: EC2InstanceAmi
+      KeyName:
+        Ref: EC2KeyName
+      SecurityGroupIds:
+      - !GetAtt VPCMain.DefaultSecurityGroup
+      - !Ref EC2SecurityGroupWebServer
+      SubnetId: !Ref VPCSubnetPublicA
+      UserData:
+        "Fn::Base64":
+          !Sub |
+            #!/bin/bash -xe
+            yum update -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2InstanceWebServer --region ${AWS::Region} -c provision
+            nc -z localhost 80 # Test if we have a web-server listening, send success signal if we do!
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource EC2InstanceWebServer --region ${AWS::Region}

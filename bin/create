@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+aws cloudformation \
+  create-stack --stack-name ${STACK_NAME} \
+  --on-failure DELETE \
+  --template-body file:///aws/web-server.yml

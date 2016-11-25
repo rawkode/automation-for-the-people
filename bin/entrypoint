@@ -1,0 +1,46 @@
+#!/usr/bin/env sh
+if [ $@ = "" ];
+then
+  echo "You shouldn't run 'docker-compose up'. Check out the README.md"
+  exit 1
+fi
+
+if [ $@ = "create" ];
+then
+  echo "Creating your awesome new web-server now ... Fetching Stack Information ..."
+  /aws/bin/create
+  echo "... Waiting for completed signal; please be patient ..."
+  aws cloudformation wait stack-create-complete --stack-name ${STACK_NAME}
+
+  if [ $? -eq 0 ];
+  then
+    ip=`aws cloudformation describe-stacks --stack-name stelligent --output text | grep IP | awk '{ print $NF }'`
+    echo "Success! You can find your web-server at http://${ip}"
+    exit 0
+  else
+    echo "Unfortunately the instance failed to confirm a successful boot. Please try again"
+    exit 1
+  fi
+  exit 0
+fi
+
+
+if [ $@ = "delete" ];
+then
+  echo "Deleting your awesome new web-server now ..."
+  /aws/bin/delete
+  echo "... Waiting for completed signal; please be patient ..."
+  aws cloudformation wait stack-delete-complete --stack-name ${STACK_NAME}
+
+  if [ $? -eq 0 ];
+  then
+    echo "Success! Your CloudFormation Stack has been deleted."
+    exit 0
+  else
+    echo "Unfortunately the instance failed to confirm a successful delete. Please try again"
+    exit 1
+  fi
+fi
+
+echo "Perhaps you should give the README.md a try :)";
+exit 1

@@ -1,0 +1,14 @@
+version: "2"
+
+services:
+  aws:
+    image: rawkode/aws-cli-alpine:latest
+    working_dir: /aws
+    entrypoint: bin/entrypoint
+    volumes:
+      - .:/aws
+    environment:
+      AWS_DEFAULT_REGION: eu-west-1
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      STACK_NAME: stelligent
